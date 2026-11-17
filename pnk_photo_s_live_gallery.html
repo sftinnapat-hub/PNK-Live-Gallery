@@ -1,0 +1,1714 @@
+<!DOCTYPE html>
+<html lang="th" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PNK-Photo's Live Gallery - ระบบแกลเลอรีภาพถ่าย Real-time เชื่อมต่อ Google Drive</title>
+    
+    <!-- Google Fonts: Prompt & Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Prevent Theme & Role Flicker Before First Paint -->
+    <script>
+        (function() {
+            const savedTheme = localStorage.getItem('pnk_theme');
+            if (savedTheme === 'light') {
+                document.documentElement.classList.remove('dark');
+            } else {
+                document.documentElement.classList.add('dark');
+            }
+            if (sessionStorage.getItem('pnk_is_admin') === 'true') {
+                document.documentElement.classList.add('is-admin-session');
+            }
+        })();
+    </script>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Prompt', 'Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        studio: {
+                            950: '#09090b',
+                            900: '#121215',
+                            800: '#1c1c21',
+                            700: '#27272e',
+                            accent: '#6366f1',
+                            accentHover: '#4f46e5',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- QRCode.js for Album QR Generation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <!-- JSZip & FileSaver for Batch ZIP Download -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+
+    <style>
+        /* Custom Scrollbar for sleek studio feel */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(156, 163, 175, 0.3);
+            border-radius: 9999px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(156, 163, 175, 0.5);
+        }
+        
+        /* Smooth Photo Reveal Animation */
+        @keyframes photoDropIn {
+            0% { opacity: 0; transform: translateY(-16px) scale(0.97); }
+            100% { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .animate-photo-in {
+            animation: photoDropIn 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        /* Face Scan Line Animation */
+        @keyframes scanLine {
+            0% { top: 0%; opacity: 0; }
+            20% { opacity: 1; }
+            80% { opacity: 1; }
+            100% { top: 100%; opacity: 0; }
+        }
+        .face-scanner-bar {
+            position: absolute;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, transparent, #6366f1, #38bdf8, #6366f1, transparent);
+            box-shadow: 0 0 12px #6366f1;
+            animation: scanLine 1.8s infinite linear;
+        }
+
+        /* Instant Role Visibility (Zero Layout Shift / Flicker on Reload) */
+        html.is-admin-session .admin-only { display: flex !important; }
+        html.is-admin-session #create-album-wrapper.admin-only { display: block !important; }
+        html.is-admin-session #admin-role-badge { display: inline-flex !important; }
+        html.is-admin-session .guest-only { display: none !important; }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-900 dark:bg-studio-950 dark:text-gray-100 min-h-screen flex flex-col selection:bg-indigo-500 selection:text-white">
+
+    <!-- Top Glassmorphic Header -->
+    <header class="sticky top-0 z-30 bg-white/85 dark:bg-studio-900/85 backdrop-blur-xl border-b border-gray-200/80 dark:border-studio-800/80">
+        <div class="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2">
+            
+            <!-- Brand & Mobile Menu Trigger -->
+            <div class="flex items-center gap-2.5 min-w-0">
+                <button id="mobile-sidebar-btn" class="lg:hidden p-2 rounded-xl text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-studio-800" aria-label="เมนูอัลบั้ม">
+                    <i data-lucide="menu" class="w-5 h-5"></i>
+                </button>
+                <div class="flex items-center gap-2.5 truncate">
+                    <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center text-white shadow-lg shadow-indigo-500/25 shrink-0">
+                        <i data-lucide="aperture" class="w-5 h-5"></i>
+                    </div>
+                    <div class="truncate">
+                        <div class="flex items-center gap-2">
+                            <h1 class="font-bold text-base sm:text-lg tracking-tight truncate">PNK-Photo's Live Gallery</h1>
+                            <span id="connection-badge" class="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                                โหมดสาธิต (Demo)
+                            </span>
+                            <!-- Admin Active Status Badge -->
+                            <span id="admin-role-badge" class="hidden items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30">
+                                <i data-lucide="shield-check" class="w-3 h-3"></i>
+                                <span>Admin</span>
+                            </span>
+                        </div>
+                        <p class="text-[11px] text-gray-500 dark:text-gray-400 truncate hidden sm:block">Google Drive Real-Time Photo Stream</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Center/Right Controls -->
+            <div class="flex items-center gap-1.5 sm:gap-2.5">
+                <!-- Real-Time Polling Toggle -->
+                <button id="realtime-toggle-btn" class="flex items-center gap-2 px-3 py-1.5 sm:py-2 rounded-xl text-xs sm:text-sm font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25 hover:bg-emerald-500/20 transition-all" title="เปิด/ปิด การดึงรูปใหม่อัตโนมัติ">
+                    <span class="relative flex h-2.5 w-2.5">
+                        <span id="live-ping" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span id="live-dot" class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                    </span>
+                    <span class="hidden md:inline">อัปเดตอัตโนมัติ (Real-time)</span>
+                    <span class="md:hidden">Live</span>
+                </button>
+
+                <!-- AI Face Search Trigger -->
+                <button id="open-face-search-btn" class="flex items-center gap-1.5 px-3 py-1.5 sm:py-2 rounded-xl text-xs sm:text-sm font-medium bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/20 transition-all">
+                    <i data-lucide="scan-face" class="w-4 h-4"></i>
+                    <span>ค้นหาใบหน้า</span>
+                </button>
+
+                <!-- Share & QR Code Button -->
+                <button id="open-qr-modal-btn" class="p-2 sm:px-3 sm:py-2 rounded-xl text-xs sm:text-sm font-medium bg-gray-100 dark:bg-studio-800 hover:bg-gray-200 dark:hover:bg-studio-700 text-gray-700 dark:text-gray-200 flex items-center gap-1.5 transition-all" title="แชร์อัลบั้ม & QR Code">
+                    <i data-lucide="qr-code" class="w-4 h-4 text-indigo-500"></i>
+                    <span class="hidden lg:inline">QR Code อัลบั้ม</span>
+                </button>
+
+                <!-- Google Drive Setup Guide Button (Admin Only) -->
+                <button id="open-setup-modal-btn" class="admin-only hidden p-2 rounded-xl bg-gray-100 dark:bg-studio-800 hover:bg-gray-200 dark:hover:bg-studio-700 text-gray-700 dark:text-gray-200 transition-all" title="ตั้งค่าเชื่อมต่อ Google Drive & รหัส Admin">
+                    <i data-lucide="settings" class="w-4 h-4"></i>
+                </button>
+
+                <!-- Admin Login / Logout Button -->
+                <button id="admin-auth-btn" class="px-2.5 sm:px-3 py-2 rounded-xl text-xs font-medium bg-gray-100 dark:bg-studio-800 hover:bg-gray-200 dark:hover:bg-studio-700 text-gray-700 dark:text-gray-200 flex items-center gap-1.5 transition-all border border-transparent" title="เข้าสู่ระบบผู้ดูแลระบบ (Admin)">
+                    <i data-lucide="lock" id="admin-auth-icon" class="w-4 h-4 text-amber-500"></i>
+                    <span id="admin-auth-label" class="hidden sm:inline">เข้าสู่ระบบ Admin</span>
+                </button>
+
+                <!-- Theme Toggle -->
+                <button id="theme-toggle-btn" class="p-2 rounded-xl bg-gray-100 dark:bg-studio-800 hover:bg-gray-200 dark:hover:bg-studio-700 text-gray-700 dark:text-gray-200 transition-all" title="สลับโหมดมืด/สว่าง">
+                    <i data-lucide="sun" class="w-4 h-4 hidden dark:block"></i>
+                    <i data-lucide="moon" class="w-4 h-4 block dark:hidden"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Toast Notification Container -->
+    <div id="toast-container" class="fixed top-20 right-4 z-50 flex flex-col gap-2 pointer-events-none max-w-sm w-full"></div>
+
+    <!-- Main Layout Container -->
+    <div class="flex-1 max-w-7xl w-full mx-auto flex relative">
+        
+        <!-- Mobile Backdrop for Sidebar -->
+        <div id="sidebar-backdrop" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 hidden lg:hidden"></div>
+
+        <!-- Album Management Sidebar -->
+        <aside id="album-sidebar" class="fixed lg:sticky top-16 left-0 z-40 h-[calc(100vh-4rem)] w-72 bg-white dark:bg-studio-900 border-r border-gray-200 dark:border-studio-800 flex flex-col transition-transform duration-300 -translate-x-full lg:translate-x-0 shrink-0">
+            <div class="p-4 border-b border-gray-200 dark:border-studio-800 flex items-center justify-between">
+                <span class="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">อัลบั้มทั้งหมด</span>
+                <button id="close-sidebar-btn" class="lg:hidden p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-studio-800">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                </button>
+            </div>
+
+            <!-- Create New Album Button (Admin Only) -->
+            <div id="create-album-wrapper" class="admin-only hidden p-3">
+                <button id="open-create-album-btn" class="w-full py-2.5 px-3 rounded-xl border-2 border-dashed border-indigo-500/40 hover:border-indigo-500 bg-indigo-500/5 hover:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 text-sm font-medium flex items-center justify-center gap-2 transition-all">
+                    <i data-lucide="folder-plus" class="w-4 h-4"></i>
+                    <span>สร้างอัลบั้มใหม่ + QR</span>
+                </button>
+            </div>
+
+            <!-- Guest Info Notice in Sidebar (Guest Only) -->
+            <div id="guest-sidebar-notice" class="guest-only p-3">
+                <div class="p-3 rounded-xl bg-indigo-500/5 border border-indigo-500/15 text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
+                    เลือกชมอัลบั้มภาพถ่ายด้านล่าง หรือกด <strong>"ค้นหาใบหน้า"</strong> เพื่อรวมรูปภาพของคุณอย่างรวดเร็ว
+                </div>
+            </div>
+
+            <!-- Album List -->
+            <div id="album-list-container" class="flex-1 overflow-y-auto px-3 space-y-1.5 pb-4">
+                <!-- Populated dynamically via JS -->
+            </div>
+
+            <!-- Sidebar Footer: Demo Simulation & Status -->
+            <div class="p-4 border-t border-gray-200 dark:border-studio-800 bg-gray-50/80 dark:bg-studio-950/50 space-y-2.5">
+                <div class="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+                    <span>ซิงค์ล่าสุด:</span>
+                    <span id="last-sync-time" class="font-mono text-gray-700 dark:text-gray-300">เมื่อสักครู่</span>
+                </div>
+                <button id="simulate-upload-btn" class="admin-only hidden w-full py-2 px-3 rounded-xl bg-gray-900 dark:bg-studio-800 hover:bg-gray-800 dark:hover:bg-studio-700 text-white text-xs font-medium flex items-center justify-center gap-2 shadow-sm transition-all border border-gray-700/50">
+                    <i data-lucide="sparkles" class="w-3.5 h-3.5 text-amber-400"></i>
+                    <span>จำลองอัปโหลดรูปใหม่ (Real-time)</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Gallery Content Area -->
+        <main class="flex-1 min-w-0 p-4 sm:p-6 lg:p-8 pb-28">
+            
+            <!-- Active Album Header & Toolbar -->
+            <div class="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-6">
+                <div>
+                    <div class="flex items-center gap-2 text-xs text-indigo-600 dark:text-indigo-400 font-medium mb-1">
+                        <i data-lucide="hard-drive" class="w-3.5 h-3.5"></i>
+                        <span id="active-folder-id-label">Drive Folder: DEMO_WEDDING_2026</span>
+                    </div>
+                    <h2 id="active-album-title" class="text-2xl sm:text-3xl font-bold tracking-tight">งานฉลองมงคลสมรส คุณนัท & คุณพลอย</h2>
+                    <p id="active-album-subtitle" class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                        เรียงลำดับภาพถ่ายล่าสุดไว้ด้านบนสุด • อัปเดตอัตโนมัติทันทีที่ช่างภาพส่งไฟล์เข้า Google Drive
+                    </p>
+                </div>
+
+                <!-- Action Toolbar -->
+                <div class="flex flex-wrap items-center gap-2">
+                    <!-- Delete Current Album Button (Admin Only) -->
+                    <button id="delete-current-album-btn" class="admin-only hidden px-3.5 py-2 rounded-xl text-xs sm:text-sm font-medium bg-rose-500/10 hover:bg-rose-500 text-rose-600 dark:text-rose-400 hover:text-white border border-rose-500/25 flex items-center gap-1.5 transition-all" title="ลบอัลบั้มนี้">
+                        <i data-lucide="trash-2" class="w-4 h-4"></i>
+                        <span>ลบอัลบั้มนี้</span>
+                    </button>
+
+                    <!-- Select All / Deselect Toggle -->
+                    <button id="select-all-btn" class="px-3.5 py-2 rounded-xl text-xs sm:text-sm font-medium bg-white dark:bg-studio-800 border border-gray-200 dark:border-studio-700 hover:border-indigo-500/50 flex items-center gap-2 transition-all">
+                        <i data-lucide="check-square" class="w-4 h-4 text-indigo-500"></i>
+                        <span id="select-all-label">เลือกรูปภาพ</span>
+                    </button>
+
+                    <!-- Refresh Now Button -->
+                    <button id="manual-refresh-btn" class="p-2 rounded-xl bg-white dark:bg-studio-800 border border-gray-200 dark:border-studio-700 hover:border-indigo-500/50 text-gray-600 dark:text-gray-300 transition-all" title="รีเฟรชข้อมูลทันที">
+                        <i data-lucide="refresh-cw" id="refresh-icon" class="w-4 h-4"></i>
+                    </button>
+
+                    <!-- Grid Density Switcher -->
+                    <div class="hidden sm:flex items-center bg-white dark:bg-studio-800 border border-gray-200 dark:border-studio-700 rounded-xl p-1">
+                        <button data-cols="comfortable" class="grid-density-btn px-2.5 py-1 rounded-lg text-xs font-medium bg-indigo-600 text-white transition-all">ปกติ</button>
+                        <button data-cols="compact" class="grid-density-btn px-2.5 py-1 rounded-lg text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-all">มุมมองย่อ</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Active Face Filter Banner (Shown when Face Search is active) -->
+            <div id="face-filter-banner" class="hidden mb-6 p-3.5 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 flex flex-wrap items-center justify-between gap-3">
+                <div class="flex items-center gap-3">
+                    <img id="filter-face-avatar" src="" alt="Filtered Face" class="w-11 h-11 rounded-full object-cover ring-2 ring-indigo-500">
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs font-semibold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">กำลังกรองด้วย AI Face Search</span>
+                            <span id="filter-match-count" class="px-2 py-0.5 rounded-full text-xs font-bold bg-indigo-600 text-white">0 รูป</span>
+                        </div>
+                        <p id="filter-face-name" class="text-sm font-medium mt-0.5">พบใบหน้าที่ตรงกันในอัลบั้มนี้</p>
+                    </div>
+                </div>
+                <button id="clear-face-filter-btn" class="px-3.5 py-1.5 rounded-xl bg-white dark:bg-studio-800 hover:bg-gray-100 dark:hover:bg-studio-700 text-xs font-medium border border-gray-200 dark:border-studio-700 flex items-center gap-1.5 transition-all">
+                    <i data-lucide="x-circle" class="w-4 h-4 text-rose-500"></i>
+                    <span>ล้างตัวกรองใบหน้า</span>
+                </button>
+            </div>
+
+            <!-- Photo Stats Bar -->
+            <div class="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 mb-4 pb-2 border-b border-gray-200/70 dark:border-studio-800/70">
+                <div class="flex items-center gap-2">
+                    <span class="inline-block w-2 h-2 rounded-full bg-indigo-500"></span>
+                    <span>แสดงทั้งหมด <strong id="total-photos-count" class="text-gray-900 dark:text-white">0</strong> ภาพ (เรียงจากใหม่ไปเก่า)</span>
+                </div>
+                <div class="hidden sm:block">
+                    คลิกที่รูปเพื่อดูขนาดเต็ม • กดเครื่องหมายถูกเพื่อโหลดหลายรูป
+                </div>
+            </div>
+
+            <!-- Responsive Photo Grid -->
+            <div id="photo-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
+                <!-- Photo cards rendered dynamically via JS -->
+            </div>
+
+            <!-- Empty State -->
+            <div id="empty-state" class="hidden py-20 text-center">
+                <div class="w-16 h-16 rounded-2xl bg-gray-100 dark:bg-studio-800 flex items-center justify-center mx-auto mb-4 text-gray-400">
+                    <i data-lucide="image-off" class="w-8 h-8"></i>
+                </div>
+                <h3 class="text-lg font-semibold">ไม่พบรูปภาพที่ตรงกับเงื่อนไข</h3>
+                <p class="text-sm text-gray-500 dark:text-gray-400 mt-1 max-w-md mx-auto">ลองล้างตัวกรองการค้นหาใบหน้า หรือกดปุ่ม "จำลองอัปโหลดรูปใหม่" เพื่อทดสอบระบบดึงภาพแบบ Real-time</p>
+            </div>
+        </main>
+    </div>
+
+    <!-- Floating Multi-Select & Batch ZIP Download Action Bar -->
+    <div id="batch-action-bar" class="fixed bottom-5 left-1/2 -translate-x-1/2 z-40 w-[94%] max-w-2xl bg-gray-900/95 dark:bg-studio-800/95 backdrop-blur-xl text-white px-4 py-3 rounded-2xl shadow-2xl border border-white/10 flex items-center justify-between gap-3 transition-all duration-300 translate-y-28 opacity-0 pointer-events-none">
+        <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-sm" id="selected-count-badge">0</div>
+            <div>
+                <p class="text-sm font-semibold">เลือกแล้ว <span id="selected-count-text">0</span> รูป</p>
+                <p class="text-[11px] text-gray-400 hidden sm:block">พร้อมดาวน์โหลดรวมเป็นไฟล์ ZIP ความละเอียดสูง</p>
+            </div>
+        </div>
+        <div class="flex items-center gap-2">
+            <button id="batch-select-all-btn" class="px-3 py-2 rounded-xl text-xs font-medium bg-white/10 hover:bg-white/20 transition-all">
+                เลือกทั้งหมด
+            </button>
+            <button id="batch-clear-btn" class="px-3 py-2 rounded-xl text-xs font-medium text-gray-300 hover:text-white hover:bg-white/10 transition-all">
+                ยกเลิก
+            </button>
+            <button id="batch-download-zip-btn" class="px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/30 flex items-center gap-2 transition-all">
+                <i data-lucide="download" class="w-4 h-4"></i>
+                <span id="zip-btn-label">โหลด ZIP</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- ==================== MODALS ==================== -->
+
+    <!-- Lightbox Modal -->
+    <div id="lightbox-modal" class="fixed inset-0 z-50 bg-black/95 backdrop-blur-md hidden flex-col select-none">
+        <!-- Lightbox Top Bar -->
+        <div class="flex items-center justify-between px-4 py-3 text-white border-b border-white/10 z-10">
+            <div class="flex items-center gap-3 min-w-0">
+                <span id="lightbox-counter" class="px-2.5 py-1 rounded-lg bg-white/10 text-xs font-mono">1 / 12</span>
+                <div class="truncate">
+                    <h4 id="lightbox-title" class="text-sm font-medium truncate">IMG_9482.JPG</h4>
+                    <p id="lightbox-meta" class="text-[11px] text-gray-400 truncate">อัปโหลดเมื่อ 2 นาทีที่แล้ว • 4.2 MB</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-2">
+                <button id="lightbox-select-btn" class="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-medium flex items-center gap-1.5 transition-all">
+                    <i data-lucide="check-circle" class="w-4 h-4"></i>
+                    <span id="lightbox-select-text">เลือกรูปนี้</span>
+                </button>
+                <button id="lightbox-download-btn" class="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-semibold flex items-center gap-1.5 shadow-lg shadow-indigo-600/30 transition-all">
+                    <i data-lucide="download" class="w-4 h-4"></i>
+                    <span>ดาวน์โหลดรูป</span>
+                </button>
+                <button id="lightbox-close-btn" class="p-2 rounded-xl bg-white/10 hover:bg-rose-600 text-white transition-all ml-1">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Lightbox Main Image Stage -->
+        <div id="lightbox-stage" class="flex-1 relative flex items-center justify-center overflow-hidden p-2 sm:p-6">
+            <button id="lightbox-prev-btn" class="absolute left-3 sm:left-6 z-10 p-3 rounded-full bg-black/50 hover:bg-white/20 text-white border border-white/15 backdrop-blur-md transition-all">
+                <i data-lucide="chevron-left" class="w-6 h-6"></i>
+            </button>
+
+            <img id="lightbox-img" src="" alt="Preview" class="max-h-full max-w-full object-contain rounded-lg shadow-2xl transition-transform duration-200 cursor-zoom-in">
+
+            <button id="lightbox-next-btn" class="absolute right-3 sm:right-6 z-10 p-3 rounded-full bg-black/50 hover:bg-white/20 text-white border border-white/15 backdrop-blur-md transition-all">
+                <i data-lucide="chevron-right" class="w-6 h-6"></i>
+            </button>
+        </div>
+
+        <!-- Lightbox Bottom Detected Faces Strip -->
+        <div class="px-4 py-3 border-t border-white/10 bg-black/60 flex items-center justify-center gap-3 overflow-x-auto">
+            <span class="text-xs text-gray-400 shrink-0 flex items-center gap-1.5">
+                <i data-lucide="scan-face" class="w-3.5 h-3.5 text-indigo-400"></i>
+                บุคคลในภาพนี้:
+            </span>
+            <div id="lightbox-faces-list" class="flex items-center gap-2">
+                <!-- Populated dynamically -->
+            </div>
+        </div>
+    </div>
+
+    <!-- AI Face Search Modal -->
+    <div id="face-search-modal" class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm hidden items-center justify-center p-4">
+        <div class="bg-white dark:bg-studio-900 border border-gray-200 dark:border-studio-700 rounded-3xl max-w-lg w-full overflow-hidden shadow-2xl">
+            <div class="p-5 border-b border-gray-200 dark:border-studio-800 flex items-center justify-between">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-9 h-9 rounded-xl bg-indigo-500/15 text-indigo-500 flex items-center justify-center">
+                        <i data-lucide="scan-face" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-base">ระบบค้นหาใบหน้าอัจฉริยะ (AI Face Search)</h3>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">อัปโหลดเซลฟี่หรือเลือกใบหน้าเพื่อค้นหารูปของคุณทันที</p>
+                    </div>
+                </div>
+                <button id="close-face-modal-btn" class="p-2 rounded-xl text-gray-400 hover:bg-gray-100 dark:hover:bg-studio-800">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <div class="p-5 space-y-5">
+                <!-- Selfie Upload Dropzone -->
+                <div class="relative">
+                    <label for="selfie-upload-input" class="flex flex-col items-center justify-center p-6 border-2 border-dashed border-indigo-500/40 hover:border-indigo-500 rounded-2xl bg-indigo-500/5 hover:bg-indigo-500/10 cursor-pointer transition-all text-center">
+                        <div class="w-12 h-12 rounded-full bg-indigo-600 text-white flex items-center justify-center mb-3 shadow-lg shadow-indigo-600/25">
+                            <i data-lucide="camera" class="w-6 h-6"></i>
+                        </div>
+                        <span class="text-sm font-semibold text-indigo-600 dark:text-indigo-400">ถ่ายรูปเซลฟี่ หรือ อัปโหลดรูปใบหน้าของคุณ</span>
+                        <span class="text-xs text-gray-500 dark:text-gray-400 mt-1">ระบบ AI จะสแกนและจับคู่ภาพถ่ายของคุณในอัลบั้มทันที</span>
+                        <input id="selfie-upload-input" type="file" accept="image/*" class="hidden">
+                    </label>
+
+                    <!-- Scanning Progress Overlay -->
+                    <div id="face-scanning-overlay" class="hidden absolute inset-0 rounded-2xl bg-studio-900/95 backdrop-blur-md flex flex-col items-center justify-center text-white p-4 overflow-hidden">
+                        <div class="face-scanner-bar"></div>
+                        <i data-lucide="cpu" class="w-8 h-8 text-indigo-400 animate-pulse mb-2"></i>
+                        <p class="text-sm font-semibold">กำลังประมวลผล Face Embeddings...</p>
+                        <p id="scan-progress-text" class="text-xs text-gray-400 mt-1">วิเคราะห์โครงสร้างใบหน้า 100%</p>
+                    </div>
+                </div>
+
+                <!-- Quick Pick Detected People in Event -->
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-3">
+                        หรือเลือกจากบุคคลสำคัญในงาน:
+                    </p>
+                    <div id="detected-faces-grid" class="grid grid-cols-3 sm:grid-cols-4 gap-3">
+                        <!-- Populated dynamically -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create New Album Modal -->
+    <div id="create-album-modal" class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm hidden items-center justify-center p-4">
+        <div class="bg-white dark:bg-studio-900 border border-gray-200 dark:border-studio-700 rounded-3xl max-w-md w-full overflow-hidden shadow-2xl">
+            <div class="p-5 border-b border-gray-200 dark:border-studio-800 flex items-center justify-between">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-9 h-9 rounded-xl bg-indigo-500/15 text-indigo-500 flex items-center justify-center">
+                        <i data-lucide="folder-plus" class="w-5 h-5"></i>
+                    </div>
+                    <h3 class="font-bold text-base">สร้างอัลบั้มใหม่ & QR Code</h3>
+                </div>
+                <button id="close-create-album-btn" class="p-2 rounded-xl text-gray-400 hover:bg-gray-100 dark:hover:bg-studio-800">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <form id="create-album-form" class="p-5 space-y-4">
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">ชื่ออัลบั้ม / ชื่องาน *</label>
+                    <input type="text" id="new-album-name" required placeholder="เช่น งานรับปริญญา ม.เกษตร 2026" class="w-full px-3.5 py-2.5 rounded-xl bg-gray-50 dark:bg-studio-800 border border-gray-200 dark:border-studio-700 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">Google Drive Folder ID *</label>
+                    <input type="text" id="new-album-folder-id" required placeholder="เช่น 1A2B3C4D5E6F7G8H9I0J" class="w-full px-3.5 py-2.5 rounded-xl bg-gray-50 dark:bg-studio-800 border border-gray-200 dark:border-studio-700 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <p class="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
+                        คัดลอกรหัสท้าย URL ของโฟลเดอร์ Google Drive (drive.google.com/drive/folders/<strong>รหัสโฟลเดอร์</strong>)
+                    </p>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">คำอธิบายสั้นๆ (ไม่บังคับ)</label>
+                    <input type="text" id="new-album-desc" placeholder="เช่น ถ่ายโดยทีมงาน 1985 Photo" class="w-full px-3.5 py-2.5 rounded-xl bg-gray-50 dark:bg-studio-800 border border-gray-200 dark:border-studio-700 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+
+                <div class="pt-2 flex items-center justify-end gap-2">
+                    <button type="button" id="cancel-create-album-btn" class="px-4 py-2.5 rounded-xl text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-studio-800">ยกเลิก</button>
+                    <button type="submit" class="px-5 py-2.5 rounded-xl text-sm font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/25 flex items-center gap-2">
+                        <i data-lucide="qr-code" class="w-4 h-4"></i>
+                        <span>สร้างอัลบั้มและรับ QR</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Share Album & QR Code Modal -->
+    <div id="qr-share-modal" class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm hidden items-center justify-center p-4">
+        <div class="bg-white dark:bg-studio-900 border border-gray-200 dark:border-studio-700 rounded-3xl max-w-sm w-full overflow-hidden shadow-2xl text-center">
+            <div class="p-5 border-b border-gray-200 dark:border-studio-800 flex items-center justify-between">
+                <h3 class="font-bold text-base">แชร์อัลบั้ม & QR Code</h3>
+                <button id="close-qr-modal-btn" class="p-2 rounded-xl text-gray-400 hover:bg-gray-100 dark:hover:bg-studio-800">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <div class="p-6 space-y-4">
+                <div>
+                    <span class="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">สแกนเพื่อดูและโหลดรูปภาพ</span>
+                    <h4 id="qr-album-title" class="font-bold text-lg mt-2 line-clamp-1">ชื่ออัลบั้ม</h4>
+                </div>
+
+                <!-- QR Code Container -->
+                <div class="bg-white p-4 rounded-2xl inline-block shadow-inner border border-gray-200 mx-auto">
+                    <div id="qrcode-canvas-container" class="flex items-center justify-center"></div>
+                </div>
+
+                <!-- Share Link Box -->
+                <div class="flex items-center gap-1.5 bg-gray-100 dark:bg-studio-800 p-2 rounded-xl border border-gray-200 dark:border-studio-700">
+                    <input id="share-album-url" type="text" readonly class="bg-transparent text-xs font-mono text-gray-600 dark:text-gray-300 flex-1 focus:outline-none px-1">
+                    <button id="copy-link-btn" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium shrink-0 transition-all">
+                        คัดลอกลิงก์
+                    </button>
+                </div>
+
+                <!-- Preview Warning Notice -->
+                <div id="qr-sandbox-warning" class="hidden p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-[11px] text-amber-600 dark:text-amber-400 text-left leading-relaxed">
+                    <strong>หมายเหตุ:</strong> คุณกำลังเปิดใช้งานในโหมดทดสอบ (Preview) หากต้องการให้มือถือสแกน QR Code เข้าได้จริง กรุณานำไฟล์ <code>index.html</code> ขึ้นเว็บโฮสติ้ง (เช่น Netlify, Vercel, GitHub Pages) หรือระบุลิงก์เว็บไซต์จริงในหน้าตั้งค่า
+                </div>
+
+                <button id="download-qr-btn" class="w-full py-2.5 px-4 rounded-xl bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-semibold text-sm flex items-center justify-center gap-2 hover:opacity-90 transition-all">
+                    <i data-lucide="download" class="w-4 h-4"></i>
+                    <span>บันทึกรูปภาพ QR Code (.PNG)</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Google Drive & Apps Script Connection Setup Modal -->
+    <div id="setup-guide-modal" class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm hidden items-center justify-center p-4">
+        <div class="bg-white dark:bg-studio-900 border border-gray-200 dark:border-studio-700 rounded-3xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden shadow-2xl">
+            <div class="p-5 border-b border-gray-200 dark:border-studio-800 flex items-center justify-between shrink-0">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-9 h-9 rounded-xl bg-emerald-500/15 text-emerald-500 flex items-center justify-center">
+                        <i data-lucide="hard-drive" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-base">เชื่อมต่อ Google Drive จริง (ผ่าน Google Apps Script)</h3>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">ซิงค์ภาพถ่ายจากโฟลเดอร์ Google Drive แบบ Real-time</p>
+                    </div>
+                </div>
+                <button id="close-setup-modal-btn" class="p-2 rounded-xl text-gray-400 hover:bg-gray-100 dark:hover:bg-studio-800">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <div class="p-5 overflow-y-auto space-y-5 text-sm">
+                <!-- Endpoint URL Input -->
+                <div class="p-4 rounded-2xl bg-indigo-500/5 border border-indigo-500/20 space-y-2.5">
+                    <label class="block text-xs font-semibold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
+                        1. วางลิงก์ Google Apps Script Web App URL
+                    </label>
+                    <div class="flex flex-col sm:flex-row gap-2">
+                        <input type="url" id="gas-endpoint-input" placeholder="https://script.google.com/macros/s/AKfycbx.../exec" class="flex-1 px-3.5 py-2.5 rounded-xl bg-white dark:bg-studio-800 border border-gray-200 dark:border-studio-700 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <button id="save-gas-endpoint-btn" class="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs shrink-0 transition-all">
+                            บันทึกและเชื่อมต่อ
+                        </button>
+                    </div>
+                    <p class="text-[11px] text-gray-500 dark:text-gray-400">
+                        * หากเว้นว่างไว้ ระบบจะทำงานใน <strong>โหมดสาธิต (Demo Mode)</strong> พร้อมภาพตัวอย่างให้ทดสอบทันที
+                    </p>
+                </div>
+
+                <!-- Public Base URL Input -->
+                <div class="p-4 rounded-2xl bg-sky-500/5 border border-sky-500/20 space-y-2.5">
+                    <label class="block text-xs font-semibold text-sky-600 dark:text-sky-400 uppercase tracking-wider">
+                        ลิงก์เว็บไซต์หลักสำหรับสร้าง QR Code (Public Website URL)
+                    </label>
+                    <div class="flex flex-col sm:flex-row gap-2">
+                        <input type="url" id="public-base-url-input" placeholder="เช่น https://mygallery.netlify.app (เว้นว่างเพื่อใช้ URL ปัจจุบัน)" class="flex-1 px-3.5 py-2.5 rounded-xl bg-white dark:bg-studio-800 border border-gray-200 dark:border-studio-700 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-sky-500">
+                        <button id="save-public-url-btn" class="px-4 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs shrink-0 transition-all">
+                            บันทึก URL
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Admin Password Change Box -->
+                <div class="p-4 rounded-2xl bg-rose-500/5 border border-rose-500/20 space-y-2.5">
+                    <label class="block text-xs font-semibold text-rose-600 dark:text-rose-400 uppercase tracking-wider">
+                        ตั้งค่ารหัสผ่านผู้ดูแลระบบ (Admin Password)
+                    </label>
+                    <div class="flex flex-col sm:flex-row gap-2">
+                        <input type="text" id="new-admin-password-input" placeholder="ตั้งรหัสผ่าน Admin ใหม่ (ค่าเริ่มต้น: admin1234)" class="flex-1 px-3.5 py-2 rounded-xl bg-white dark:bg-studio-800 border border-gray-200 dark:border-studio-700 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-rose-500">
+                        <button id="save-admin-password-btn" class="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs shrink-0 transition-all">
+                            เปลี่ยนรหัสผ่าน
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Step by Step Guide -->
+                <div class="space-y-3">
+                    <h4 class="font-semibold text-gray-900 dark:text-white">2. ขั้นตอนสร้างตัวเชื่อมต่อใน Google Drive (ใช้เวลา 2 นาที)</h4>
+                    <ol class="list-decimal list-inside space-y-1.5 text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
+                        <li>ไปที่ <a href="https://script.google.com" target="_blank" class="text-indigo-500 underline">script.google.com</a> แล้วกด <strong>New Project (โครงการใหม่)</strong></li>
+                        <li>ลบโค้ดเดิมออกทั้งหมด แล้วคัดลอกโค้ด <code>Code.gs</code> ด้านล่างไปวางแทนที่</li>
+                        <li>กดปุ่ม <strong>Deploy (การทำให้ใช้งานได้) &gt; New deployment (การทำให้ใช้งานได้รายการใหม่)</strong></li>
+                        <li>เลือกประเภทเป็น <strong>Web app</strong>, ตั้งค่า Who has access เป็น <strong>Anyone (ทุกคน)</strong> แล้วกด Deploy</li>
+                        <li>นำ <strong>Web app URL</strong> ที่ได้มาวางในช่องด้านบน และตั้งค่าแชร์โฟลเดอร์ Google Drive เป็น <em>"ทุกคนที่มีลิงก์สามารถดูได้"</em></li>
+                    </ol>
+                </div>
+
+                <!-- Copyable Code.gs Block -->
+                <div>
+                    <div class="flex items-center justify-between mb-1.5">
+                        <span class="text-xs font-mono font-semibold text-gray-500">Code.gs (Google Apps Script Backend)</span>
+                        <button id="copy-gas-code-btn" class="px-3 py-1 rounded-lg bg-gray-100 dark:bg-studio-800 hover:bg-gray-200 dark:hover:bg-studio-700 text-xs font-medium flex items-center gap-1.5 transition-all">
+                            <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                            <span>คัดลอกโค้ด Code.gs</span>
+                        </button>
+                    </div>
+                    <pre id="gas-source-code" class="p-3.5 rounded-2xl bg-gray-950 text-emerald-400 text-[11px] font-mono overflow-x-auto leading-relaxed border border-gray-800">function doGet(e) {
+  var folderId = e.parameter.folderId;
+  if (!folderId) {
+    return ContentService.createTextOutput(JSON.stringify({ error: "Missing folderId" }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+  
+  var folder = DriveApp.getFolderById(folderId);
+  var files = folder.getFiles();
+  var result = [];
+  
+  while (files.hasNext()) {
+    var file = files.next();
+    var mime = file.getMimeType();
+    if (mime.indexOf("image/") === 0) {
+      var id = file.getId();
+      result.push({
+        id: id,
+        name: file.getName(),
+        timestamp: file.getDateCreated().getTime(),
+        size: (file.getSize() / (1024 * 1024)).toFixed(1) + " MB",
+        thumbUrl: "https://drive.google.com/thumbnail?id=" + id + "&sz=w800",
+        fullUrl: "https://drive.google.com/thumbnail?id=" + id + "&sz=w2048",
+        downloadUrl: "https://drive.google.com/uc?export=download&id=" + id
+      });
+    }
+  }
+  
+  result.sort(function(a, b) { return b.timestamp - a.timestamp; });
+  
+  return ContentService.createTextOutput(JSON.stringify({ photos: result }))
+    .setMimeType(ContentService.MimeType.JSON);
+}</pre>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Admin Login Modal -->
+    <div id="admin-login-modal" class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm hidden items-center justify-center p-4">
+        <div class="bg-white dark:bg-studio-900 border border-gray-200 dark:border-studio-700 rounded-3xl max-w-sm w-full overflow-hidden shadow-2xl">
+            <div class="p-5 border-b border-gray-200 dark:border-studio-800 flex items-center justify-between">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-9 h-9 rounded-xl bg-amber-500/15 text-amber-500 flex items-center justify-center">
+                        <i data-lucide="shield" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-base">เข้าสู่ระบบผู้ดูแลระบบ (Admin)</h3>
+                        <p class="text-[11px] text-gray-500 dark:text-gray-400">สำหรับช่างภาพและทีมงานจัดการอัลบั้ม</p>
+                    </div>
+                </div>
+                <button id="close-admin-login-btn" class="p-2 rounded-xl text-gray-400 hover:bg-gray-100 dark:hover:bg-studio-800">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <form id="admin-login-form" class="p-5 space-y-4">
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">รหัสผ่าน Admin</label>
+                    <input type="password" id="admin-password-input" required placeholder="กรอกรหัสผ่านผู้ดูแลระบบ" class="w-full px-3.5 py-2.5 rounded-xl bg-gray-50 dark:bg-studio-800 border border-gray-200 dark:border-studio-700 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <p class="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5 flex items-center gap-1">
+                        <i data-lucide="info" class="w-3.5 h-3.5 text-indigo-400"></i>
+                        <span>รหัสผ่านเริ่มต้นสำหรับทดสอบ: <code class="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-studio-800 font-mono text-indigo-500">admin1234</code></span>
+                    </p>
+                </div>
+
+                <div class="pt-1 flex items-center justify-end gap-2">
+                    <button type="button" id="cancel-admin-login-btn" class="px-4 py-2 rounded-xl text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-studio-800">ยกเลิก</button>
+                    <button type="submit" class="px-5 py-2.5 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/25 flex items-center gap-1.5">
+                        <i data-lucide="unlock" class="w-4 h-4"></i>
+                        <span>เข้าสู่ระบบ</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Delete Album Confirmation Modal -->
+    <div id="delete-album-modal" class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm hidden items-center justify-center p-4">
+        <div class="bg-white dark:bg-studio-900 border border-gray-200 dark:border-studio-700 rounded-3xl max-w-sm w-full overflow-hidden shadow-2xl">
+            <div class="p-6 text-center space-y-4">
+                <div class="w-14 h-14 rounded-2xl bg-rose-500/15 text-rose-500 flex items-center justify-center mx-auto">
+                    <i data-lucide="trash-2" class="w-7 h-7"></i>
+                </div>
+                <div>
+                    <h3 class="font-bold text-lg text-gray-900 dark:text-white">ยืนยันการลบอัลบั้ม?</h3>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed">
+                        คุณกำลังจะลบอัลบั้ม <strong id="delete-target-album-name" class="text-gray-900 dark:text-white">"ชื่ออัลบั้ม"</strong> ออกจากรายการแสดงผล (ไฟล์ต้นฉบับใน Google Drive ของคุณจะไม่ถูกลบ)
+                    </p>
+                </div>
+
+                <div class="flex items-center gap-2.5 pt-2">
+                    <button type="button" id="cancel-delete-album-btn" class="flex-1 py-2.5 px-4 rounded-xl text-xs font-semibold bg-gray-100 dark:bg-studio-800 hover:bg-gray-200 dark:hover:bg-studio-700 text-gray-700 dark:text-gray-200 transition-all">
+                        ยกเลิก
+                    </button>
+                    <button type="button" id="confirm-delete-album-btn" class="flex-1 py-2.5 px-4 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white shadow-lg shadow-rose-600/25 transition-all">
+                        ยืนยันการลบ
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Mobile Download Helper Modal -->
+    <div id="mobile-download-modal" class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm hidden items-center justify-center p-4">
+        <div class="bg-white dark:bg-studio-900 border border-gray-200 dark:border-studio-700 rounded-3xl max-w-sm w-full overflow-hidden shadow-2xl p-6 text-center space-y-4">
+            <div class="w-14 h-14 rounded-2xl bg-indigo-500/15 text-indigo-500 flex items-center justify-center mx-auto">
+                <i data-lucide="download-cloud" class="w-7 h-7"></i>
+            </div>
+            <div>
+                <h3 class="font-bold text-lg">บันทึกรูปภาพลงมือถือ</h3>
+                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed">
+                    เนื่องจากนโยบายความปลอดภัยของมือถือ (iOS / Android) วิธีที่ง่ายและชัวร์ที่สุดสำหรับทุกคน:
+                </p>
+            </div>
+            <div class="p-3.5 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-xs text-indigo-600 dark:text-indigo-400 text-left space-y-1">
+                <p>👉 <strong>วิธีทำ:</strong> กดปุ่มเปิดรูปด้านล่าง แล้วใช้นิ้ว <strong>"แตะค้างไว้ที่รูปภาพ"</strong> จากนั้นเลือก <strong>"บันทึกรูปภาพ" (Save Image)</strong> ได้เลยครับ</p>
+            </div>
+            <div class="space-y-2 pt-1">
+                <a id="mobile-direct-open-link" href="#" target="_blank" class="w-full py-3 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/30 transition-all">
+                    <i data-lucide="external-link" class="w-4 h-4"></i>
+                    <span>เปิดรูปภาพขนาดเต็มเพื่อบันทึก</span>
+                </a>
+                <button type="button" onclick="closeModal('mobile-download-modal')" class="w-full py-2 px-4 rounded-xl text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-studio-800">
+                    ปิดหน้าต่างนี้
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== APPLICATION JAVASCRIPT ==================== -->
+    <script>
+        const DETECTED_PEOPLE = [
+            { id: 'person_bride', name: 'คุณพลอย (เจ้าสาว)', avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80' },
+            { id: 'person_groom', name: 'คุณนัท (เจ้าบ่าว)', avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&q=80' },
+            { id: 'person_guest1', name: 'คุณเมย์ (เพื่อนเจ้าสาว)', avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=200&q=80' },
+            { id: 'person_guest2', name: 'คุณต้น (แขก VIP)', avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=200&q=80' }
+        ];
+
+        const INITIAL_ALBUMS = [
+            {
+                id: 'alb_wedding_main',
+                name: 'งานฉลองมงคลสมรส คุณนัท & คุณพลอย',
+                folderId: '1xDemoWeddingFolder2026_Main',
+                description: 'ภาพบรรยากาศพิธีการและช่วงอาฟเตอร์ปาร์ตี้ อัปเดตสดจากกล้องช่างภาพ',
+                photos: [
+                    { id: 'p108', name: 'DSC_8912_Latest.jpg', timestamp: Date.now() - 45 * 1000, size: '5.4 MB', faces: ['person_bride', 'person_groom'], thumbUrl: 'https://images.unsplash.com/photo-1519741497674-611481863552?auto=format&fit=crop&w=800&q=80', fullUrl: 'https://images.unsplash.com/photo-1519741497674-611481863552?auto=format&fit=crop&w=1600&q=90', downloadUrl: 'https://images.unsplash.com/photo-1519741497674-611481863552?auto=format&fit=crop&w=1600&q=90' },
+                    { id: 'p107', name: 'DSC_8908.jpg', timestamp: Date.now() - 3 * 60 * 1000, size: '4.8 MB', faces: ['person_bride', 'person_guest1'], thumbUrl: 'https://images.unsplash.com/photo-1511285560929-80b456fea0bc?auto=format&fit=crop&w=800&q=80', fullUrl: 'https://images.unsplash.com/photo-1511285560929-80b456fea0bc?auto=format&fit=crop&w=1600&q=90', downloadUrl: 'https://images.unsplash.com/photo-1511285560929-80b456fea0bc?auto=format&fit=crop&w=1600&q=90' },
+                    { id: 'p106', name: 'DSC_8895.jpg', timestamp: Date.now() - 8 * 60 * 1000, size: '6.1 MB', faces: ['person_groom', 'person_guest2'], thumbUrl: 'https://images.unsplash.com/photo-1507504031003-b417219a0fde?auto=format&fit=crop&w=800&q=80', fullUrl: 'https://images.unsplash.com/photo-1507504031003-b417219a0fde?auto=format&fit=crop&w=1600&q=90', downloadUrl: 'https://images.unsplash.com/photo-1507504031003-b417219a0fde?auto=format&fit=crop&w=1600&q=90' }
+                ]
+            }
+        ];
+
+        let state = {
+            albums: JSON.parse(localStorage.getItem('pnk_albums')) || INITIAL_ALBUMS,
+            activeAlbumId: 'alb_wedding_main',
+            gasEndpoint: localStorage.getItem('pnk_gas_url') || '',
+            publicBaseUrl: localStorage.getItem('pnk_public_url') || '',
+            isAdmin: sessionStorage.getItem('pnk_is_admin') === 'true',
+            adminPassword: localStorage.getItem('pnk_admin_pass') || 'admin1234',
+            albumIdPendingDelete: null,
+            isRealtimeActive: true,
+            pollingIntervalId: null,
+            selectedPhotoIds: new Set(),
+            activeFaceFilter: null,
+            lightboxIndex: -1,
+            gridDensity: 'comfortable',
+            simCounter: 0,
+            animatedPhotoIds: new Set()
+        };
+
+        function saveAlbumsToStorage() {
+            localStorage.setItem('pnk_albums', JSON.stringify(state.albums));
+        }
+
+        function getActiveAlbum() {
+            return state.albums.find(a => a.id === state.activeAlbumId) || state.albums[0];
+        }
+
+        function getFilteredPhotos() {
+            const album = getActiveAlbum();
+            if (!album) return [];
+            let list = [...album.photos].sort((a, b) => b.timestamp - a.timestamp);
+            if (state.activeFaceFilter) {
+                list = list.filter(p => Array.isArray(p.faces) && p.faces.includes(state.activeFaceFilter.id));
+            }
+            return list;
+        }
+
+        function formatRelativeTime(timestamp) {
+            const diffSec = Math.max(1, Math.floor((Date.now() - timestamp) / 1000));
+            if (diffSec < 60) return 'เมื่อสักครู่';
+            const diffMin = Math.floor(diffSec / 60);
+            if (diffMin < 60) return `${diffMin} นาทีที่แล้ว`;
+            const diffHr = Math.floor(diffMin / 60);
+            if (diffHr < 24) return `${diffHr} ชั่วโมงที่แล้ว`;
+            return `${Math.floor(diffHr / 24)} วันที่แล้ว`;
+        }
+
+        function showToast(title, subtitle = '', type = 'info') {
+            const container = document.getElementById('toast-container');
+            if (!container) return;
+
+            const colors = {
+                success: 'border-emerald-500/40 bg-gray-900/95 text-white',
+                error: 'border-rose-500/40 bg-gray-900/95 text-white',
+                info: 'border-indigo-500/40 bg-gray-900/95 text-white'
+            };
+            const icons = {
+                success: '<i data-lucide="check-circle-2" class="w-5 h-5 text-emerald-400 shrink-0"></i>',
+                error: '<i data-lucide="alert-circle" class="w-5 h-5 text-rose-400 shrink-0"></i>',
+                info: '<i data-lucide="sparkles" class="w-5 h-5 text-indigo-400 shrink-0"></i>'
+            };
+
+            const toast = document.createElement('div');
+            toast.className = `pointer-events-auto p-3.5 rounded-2xl border shadow-2xl backdrop-blur-xl flex items-start gap-3 transition-all duration-300 translate-x-6 opacity-0 ${colors[type] || colors.info}`;
+            toast.innerHTML = `
+                ${icons[type] || icons.info}
+                <div class="min-w-0 flex-1">
+                    <p class="text-xs font-semibold truncate">${title}</p>
+                    ${subtitle ? `<p class="text-[11px] text-gray-300 mt-0.5 leading-snug">${subtitle}</p>` : ''}
+                </div>
+            `;
+            container.appendChild(toast);
+            lucide.createIcons({ root: toast });
+
+            requestAnimationFrame(() => {
+                toast.classList.remove('translate-x-6', 'opacity-0');
+            });
+
+            setTimeout(() => {
+                toast.classList.add('translate-x-6', 'opacity-0');
+                setTimeout(() => toast.remove(), 300);
+            }, 3500);
+        }
+
+        function copyTextFallback(text) {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            try {
+                document.execCommand('copy');
+            } catch (err) {}
+            document.body.removeChild(textarea);
+        }
+
+        // Universal Mobile & Desktop Download Handler
+        function downloadSinglePhoto(photo) {
+            if (!photo) return;
+            const targetUrl = photo.fullUrl || photo.thumbUrl;
+            
+            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+            if (isMobile) {
+                document.getElementById('mobile-direct-open-link').href = targetUrl;
+                openModal('mobile-download-modal');
+            } else {
+                const a = document.createElement('a');
+                a.href = targetUrl;
+                a.target = '_blank';
+                a.download = photo.name || 'PNK_Photo.jpg';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                showToast('กำลังดาวน์โหลดภาพต้นฉบับ', photo.name, 'success');
+            }
+        }
+
+        async function downloadSelectedAsZip() {
+            const album = getActiveAlbum();
+            if (!album || state.selectedPhotoIds.size === 0) return;
+
+            const selectedPhotos = album.photos.filter(p => state.selectedPhotoIds.has(p.id));
+            const btn = document.getElementById('batch-download-zip-btn');
+            const label = document.getElementById('zip-btn-label');
+            const originalText = label.textContent;
+
+            btn.disabled = true;
+            label.textContent = `กำลังรวมไฟล์ (0/${selectedPhotos.length})...`;
+
+            try {
+                const zip = new JSZip();
+                const folder = zip.folder(album.name.replace(/[\\/:*?"<>|]/g, '_'));
+                let successCount = 0;
+
+                for (let i = 0; i < selectedPhotos.length; i++) {
+                    const photo = selectedPhotos[i];
+                    label.textContent = `กำลังโหลด (${i + 1}/${selectedPhotos.length})...`;
+                    
+                    let blob = null;
+                    const urlsToTry = [
+                        photo.fullUrl,
+                        photo.thumbUrl,
+                        `https://api.allorigins.win/raw?url=${encodeURIComponent(photo.fullUrl || photo.thumbUrl)}`
+                    ];
+
+                    for (const targetUrl of urlsToTry) {
+                        if (!targetUrl) continue;
+                        try {
+                            const resp = await fetch(targetUrl, { mode: 'cors' });
+                            if (resp.ok) {
+                                blob = await resp.blob();
+                                if (blob.size > 100) break;
+                            }
+                        } catch (e) {}
+                    }
+
+                    if (blob && blob.size > 100) {
+                        folder.file(photo.name || `photo_${i + 1}.jpg`, blob);
+                        successCount++;
+                    }
+                }
+
+                if (successCount > 0) {
+                    label.textContent = 'กำลังบีบอัด ZIP...';
+                    const content = await zip.generateAsync({ type: 'blob' });
+                    saveAs(content, `${album.name.replace(/\s+/g, '_')}_${successCount}_photos.zip`);
+                    showToast('ดาวน์โหลดไฟล์ ZIP สำเร็จ!', `รวมภาพถ่ายทั้งหมด ${successCount} รูปเรียบร้อยแล้ว`, 'success');
+                } else {
+                    throw new Error('All CORS fetches failed');
+                }
+            } catch (err) {
+                showToast('เปิดหน้าต่างดาวน์โหลดสำรองสำหรับมือถือ', 'กำลังเปิดรูปภาพทีละภาพเพื่อให้คุณบันทึกได้ทันที...', 'info');
+                selectedPhotos.forEach((photo, idx) => {
+                    setTimeout(() => {
+                        window.open(photo.fullUrl || photo.thumbUrl, '_blank');
+                    }, idx * 500);
+                });
+            } finally {
+                btn.disabled = false;
+                label.textContent = originalText;
+            }
+        }
+
+        function encodeAlbumPayload(album) {
+            try {
+                const payload = {
+                    i: album.id,
+                    n: album.name,
+                    f: album.folderId,
+                    d: album.description || '',
+                    g: state.gasEndpoint || ''
+                };
+                return btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+            } catch (e) {
+                return '';
+            }
+        }
+
+        function decodeAlbumPayload(encoded) {
+            try {
+                return JSON.parse(decodeURIComponent(escape(atob(encoded))));
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function handleIncomingSharedAlbumUrl() {
+            const params = new URLSearchParams(window.location.search);
+            const albumIdParam = params.get('album');
+            const dataParam = params.get('data');
+
+            if (dataParam) {
+                const decoded = decodeAlbumPayload(dataParam);
+                if (decoded && decoded.i && decoded.f) {
+                    if (decoded.g && !state.gasEndpoint) {
+                        state.gasEndpoint = decoded.g;
+                        localStorage.setItem('pnk_gas_url', decoded.g);
+                    }
+                    let existing = state.albums.find(a => a.id === decoded.i);
+                    if (!existing) {
+                        state.albums.unshift({
+                            id: decoded.i,
+                            name: decoded.n || 'อัลบั้มภาพถ่าย',
+                            folderId: decoded.f,
+                            description: decoded.d || '',
+                            photos: []
+                        });
+                        saveAlbumsToStorage();
+                    }
+                    state.activeAlbumId = decoded.i;
+                    return;
+                }
+            }
+            if (albumIdParam && state.albums.some(a => a.id === albumIdParam)) {
+                state.activeAlbumId = albumIdParam;
+            }
+        }
+
+        function getAlbumShareUrl(album) {
+            let base = (state.publicBaseUrl || '').trim();
+            if (!base) {
+                if (window.location.protocol.startsWith('http') && !window.location.href.includes('srcdoc')) {
+                    base = window.location.origin + window.location.pathname;
+                } else {
+                    base = 'https://pnk-gallery.netlify.app/';
+                }
+            }
+            const urlObj = new URL(base);
+            urlObj.searchParams.set('album', album.id);
+            const encoded = encodeAlbumPayload(album);
+            if (encoded) urlObj.searchParams.set('data', encoded);
+            return urlObj.toString();
+        }
+
+        function updateRoleUI() {
+            const adminElements = document.querySelectorAll('.admin-only');
+            const guestElements = document.querySelectorAll('.guest-only');
+            const roleBadge = document.getElementById('admin-role-badge');
+            const authIcon = document.getElementById('admin-auth-icon');
+            const authLabel = document.getElementById('admin-auth-label');
+
+            if (state.isAdmin) {
+                document.documentElement.classList.add('is-admin-session');
+                adminElements.forEach(el => el.classList.remove('hidden'));
+                guestElements.forEach(el => el.classList.add('hidden'));
+                roleBadge.classList.remove('hidden');
+                roleBadge.classList.add('inline-flex');
+                authIcon.setAttribute('data-lucide', 'log-out');
+                authIcon.classList.remove('text-amber-500');
+                authIcon.classList.add('text-rose-500');
+                authLabel.textContent = 'ออกจาก Admin';
+            } else {
+                document.documentElement.classList.remove('is-admin-session');
+                adminElements.forEach(el => el.classList.add('hidden'));
+                guestElements.forEach(el => el.classList.remove('hidden'));
+                roleBadge.classList.add('hidden');
+                roleBadge.classList.remove('inline-flex');
+                authIcon.setAttribute('data-lucide', 'lock');
+                authIcon.classList.remove('text-rose-500');
+                authIcon.classList.add('text-amber-500');
+                authLabel.textContent = 'เข้าสู่ระบบ Admin';
+            }
+            lucide.createIcons();
+            renderAlbumSidebar();
+        }
+
+        function renderAlbumSidebar() {
+            const container = document.getElementById('album-list-container');
+            if (!container) return;
+
+            container.innerHTML = state.albums.map(album => {
+                const isActive = album.id === state.activeAlbumId;
+                return `
+                    <div class="group flex items-center gap-1 rounded-xl p-1 transition-all ${isActive ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20' : 'hover:bg-gray-100 dark:hover:bg-studio-800 text-gray-700 dark:text-gray-300'}">
+                        <button onclick="switchAlbum('${album.id}')" class="flex-1 min-w-0 text-left px-2.5 py-2 flex items-center gap-2.5">
+                            <i data-lucide="${isActive ? 'folder-open' : 'folder'}" class="w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-indigo-500'}"></i>
+                            <div class="min-w-0 flex-1">
+                                <p class="text-xs font-semibold truncate">${album.name}</p>
+                                <p class="text-[10px] ${isActive ? 'text-indigo-100' : 'text-gray-400'} truncate">${album.photos.length} รูป</p>
+                            </div>
+                        </button>
+                        ${state.isAdmin && state.albums.length > 1 ? `
+                            <button onclick="event.stopPropagation(); promptDeleteAlbum('${album.id}')" class="p-1.5 rounded-lg opacity-80 hover:opacity-100 transition-all ${isActive ? 'hover:bg-white/20 text-white' : 'hover:bg-rose-500/15 text-rose-500'}" title="ลบอัลบั้มนี้">
+                                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                            </button>
+                        ` : ''}
+                    </div>
+                `;
+            }).join('');
+            lucide.createIcons({ root: container });
+        }
+
+        function switchAlbum(albumId) {
+            if (state.activeAlbumId === albumId) return;
+            state.activeAlbumId = albumId;
+            state.selectedPhotoIds.clear();
+            state.activeFaceFilter = null;
+            document.getElementById('face-filter-banner').classList.add('hidden');
+            closeMobileSidebar();
+            renderGallery(false);
+            if (state.gasEndpoint) syncPhotosFromSource(false);
+        }
+
+        function renderGallery(animateNewOnly = false) {
+            const album = getActiveAlbum();
+            if (!album) return;
+
+            const connBadge = document.getElementById('connection-badge');
+            if (state.gasEndpoint) {
+                connBadge.textContent = 'เชื่อมต่อ Drive จริง';
+                connBadge.className = 'hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20';
+            } else {
+                connBadge.textContent = 'โหมดสาธิต (Demo)';
+                connBadge.className = 'hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20';
+            }
+
+            document.getElementById('active-folder-id-label').textContent = `Drive Folder: ${album.folderId}`;
+            document.getElementById('active-album-title').textContent = album.name;
+            document.getElementById('active-album-subtitle').textContent = album.description || 'เรียงลำดับภาพถ่ายล่าสุดไว้ด้านบนสุด • อัปเดตอัตโนมัติทันทีที่ช่างภาพส่งไฟล์เข้า Google Drive';
+
+            renderAlbumSidebar();
+
+            const photos = getFilteredPhotos();
+            const grid = document.getElementById('photo-grid');
+            const emptyState = document.getElementById('empty-state');
+            document.getElementById('total-photos-count').textContent = photos.length;
+
+            if (state.gridDensity === 'compact') {
+                grid.className = 'grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-3';
+            } else {
+                grid.className = 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4';
+            }
+
+            if (photos.length === 0) {
+                grid.innerHTML = '';
+                emptyState.classList.remove('hidden');
+            } else {
+                emptyState.classList.add('hidden');
+                grid.innerHTML = photos.map((photo, idx) => {
+                    const isSelected = state.selectedPhotoIds.has(photo.id);
+                    const isVeryNew = (Date.now() - photo.timestamp) < 120 * 1000;
+                    const shouldAnimate = !animateNewOnly && !state.animatedPhotoIds.has(photo.id);
+                    state.animatedPhotoIds.add(photo.id);
+
+                    return `
+                        <div class="group relative aspect-[4/5] rounded-2xl overflow-hidden bg-gray-200 dark:bg-studio-800 border ${isSelected ? 'border-indigo-500 ring-2 ring-indigo-500' : 'border-gray-200/70 dark:border-studio-700/70'} shadow-sm hover:shadow-xl transition-shadow duration-300 ${shouldAnimate ? 'animate-photo-in' : ''}">
+                            <img src="${photo.thumbUrl}" alt="${photo.name}" loading="lazy" onclick="openLightbox(${idx})" onerror="this.src='https://placehold.co/600x750/1c1c21/9ca3af?text=Photo'" class="w-full h-full object-cover cursor-pointer group-hover:scale-105 transition-transform duration-500">
+                            
+                            <div class="absolute inset-x-0 top-0 p-2.5 flex items-start justify-between bg-gradient-to-b from-black/60 via-black/20 to-transparent pointer-events-none">
+                                ${isVeryNew ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500 text-white shadow-md">ล่าสุด</span>` : '<span></span>'}
+                                <button onclick="event.stopPropagation(); togglePhotoSelection('${photo.id}')" class="pointer-events-auto w-7 h-7 rounded-full flex items-center justify-center transition-all ${isSelected ? 'bg-indigo-600 text-white scale-110 shadow-lg' : 'bg-black/45 hover:bg-indigo-600 text-white/80 hover:text-white border border-white/30 backdrop-blur-sm'}" title="เลือกรูปนี้">
+                                    <i data-lucide="check" class="w-4 h-4"></i>
+                                </button>
+                            </div>
+
+                            <div onclick="openLightbox(${idx})" class="absolute inset-x-0 bottom-0 p-2.5 bg-gradient-to-t from-black/80 via-black/40 to-transparent text-white cursor-pointer opacity-95 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                                <p class="text-xs font-medium truncate">${photo.name}</p>
+                                <div class="flex items-center justify-between text-[10px] text-gray-300 mt-0.5">
+                                    <span>${formatRelativeTime(photo.timestamp)}</span>
+                                    <span>${photo.size || ''}</span>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+                lucide.createIcons({ root: grid });
+            }
+            updateBatchActionBar();
+        }
+
+        async function syncPhotosFromSource(isManual = false) {
+            const album = getActiveAlbum();
+            if (!album) return;
+
+            const refreshIcon = document.getElementById('refresh-icon');
+            if (refreshIcon) refreshIcon.classList.add('animate-spin');
+
+            try {
+                if (state.gasEndpoint) {
+                    const url = new URL(state.gasEndpoint);
+                    url.searchParams.set('folderId', album.folderId);
+                    url.searchParams.set('_t', Date.now());
+
+                    const response = await fetch(url.toString());
+                    const data = await response.json();
+
+                    if (data && Array.isArray(data.photos)) {
+                        const prevCount = album.photos.length;
+                        const existingMap = new Map(album.photos.map(p => [p.id, p]));
+                        album.photos = data.photos.map(p => ({
+                            ...p,
+                            faces: existingMap.get(p.id)?.faces || []
+                        }));
+                        saveAlbumsToStorage();
+                        renderGallery(true);
+
+                        if (album.photos.length > prevCount && prevCount > 0) {
+                            showToast(`มีรูปใหม่เข้าอัลบั้ม +${album.photos.length - prevCount} รูป!`, 'อัปเดตภาพล่าสุดไว้ด้านบนสุดแล้ว', 'success');
+                        } else if (isManual) {
+                            showToast('ซิงค์ข้อมูลจาก Google Drive สำเร็จ', `พบภาพถ่ายทั้งหมด ${album.photos.length} รูป`, 'success');
+                        }
+                    } else if (data && data.error) {
+                        throw new Error(data.error);
+                    }
+                } else if (isManual) {
+                    renderGallery(true);
+                    showToast('รีเฟรชรายการภาพเรียบร้อย', 'กำลังแสดงผลในโหมดสาธิต (Demo Mode)', 'info');
+                }
+
+                document.getElementById('last-sync-time').textContent = new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            } catch (err) {
+                if (isManual) {
+                    showToast('ไม่สามารถดึงข้อมูลจาก Google Drive ได้', 'กรุณาตรวจสอบลิงก์ Apps Script หรือสิทธิ์การแชร์โฟลเดอร์', 'error');
+                }
+            } finally {
+                if (refreshIcon) {
+                    setTimeout(() => refreshIcon.classList.remove('animate-spin'), 400);
+                }
+            }
+        }
+
+        function startRealtimePolling() {
+            if (state.pollingIntervalId) clearInterval(state.pollingIntervalId);
+            state.pollingIntervalId = setInterval(() => {
+                if (state.isRealtimeActive) syncPhotosFromSource(false);
+            }, 8000);
+        }
+
+        function togglePhotoSelection(photoId) {
+            if (state.selectedPhotoIds.has(photoId)) {
+                state.selectedPhotoIds.delete(photoId);
+            } else {
+                state.selectedPhotoIds.add(photoId);
+            }
+            renderGallery(true);
+            if (state.lightboxIndex >= 0) updateLightboxSelectButton();
+        }
+
+        function updateBatchActionBar() {
+            const bar = document.getElementById('batch-action-bar');
+            const count = state.selectedPhotoIds.size;
+            const selectAllLabel = document.getElementById('select-all-label');
+
+            if (count > 0) {
+                bar.classList.remove('translate-y-28', 'opacity-0', 'pointer-events-none');
+                document.getElementById('selected-count-badge').textContent = count;
+                document.getElementById('selected-count-text').textContent = count;
+                if (selectAllLabel) selectAllLabel.textContent = `เลือกแล้ว (${count})`;
+            } else {
+                bar.classList.add('translate-y-28', 'opacity-0', 'pointer-events-none');
+                if (selectAllLabel) selectAllLabel.textContent = 'เลือกรูปภาพ';
+            }
+        }
+
+        function openLightbox(index) {
+            const photos = getFilteredPhotos();
+            if (index < 0 || index >= photos.length) return;
+            state.lightboxIndex = index;
+            const modal = document.getElementById('lightbox-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            updateLightboxContent();
+        }
+
+        function closeLightbox() {
+            const modal = document.getElementById('lightbox-modal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+            state.lightboxIndex = -1;
+        }
+
+        function updateLightboxContent() {
+            const photos = getFilteredPhotos();
+            const photo = photos[state.lightboxIndex];
+            if (!photo) return;
+
+            document.getElementById('lightbox-counter').textContent = `${state.lightboxIndex + 1} / ${photos.length}`;
+            document.getElementById('lightbox-title').textContent = photo.name;
+            document.getElementById('lightbox-meta').textContent = `อัปโหลดเมื่อ ${formatRelativeTime(photo.timestamp)} • ${photo.size || 'HD'}`;
+            document.getElementById('lightbox-img').src = photo.fullUrl || photo.thumbUrl;
+
+            updateLightboxSelectButton();
+
+            const facesList = document.getElementById('lightbox-faces-list');
+            const matchedPeople = DETECTED_PEOPLE.filter(person => Array.isArray(photo.faces) && photo.faces.includes(person.id));
+            if (matchedPeople.length > 0) {
+                facesList.innerHTML = matchedPeople.map(p => `
+                    <button onclick="closeLightbox(); applyFaceFilter('${p.id}')" class="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/10 hover:bg-indigo-600 text-white text-xs transition-all shrink-0">
+                        <img src="${p.avatar}" alt="${p.name}" class="w-4 h-4 rounded-full object-cover">
+                        <span>${p.name}</span>
+                    </button>
+                `).join('');
+            } else {
+                facesList.innerHTML = '<span class="text-xs text-gray-500">ไม่ระบุข้อมูลใบหน้า</span>';
+            }
+        }
+
+        function updateLightboxSelectButton() {
+            const photos = getFilteredPhotos();
+            const photo = photos[state.lightboxIndex];
+            if (!photo) return;
+            const btn = document.getElementById('lightbox-select-btn');
+            const text = document.getElementById('lightbox-select-text');
+            if (state.selectedPhotoIds.has(photo.id)) {
+                btn.className = 'px-3 py-1.5 rounded-xl bg-indigo-600 text-white text-xs font-medium flex items-center gap-1.5 transition-all';
+                text.textContent = 'เลือกแล้ว';
+            } else {
+                btn.className = 'px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-medium flex items-center gap-1.5 transition-all';
+                text.textContent = 'เลือกรูปนี้';
+            }
+        }
+
+        function renderDetectedFacesGrid() {
+            const grid = document.getElementById('detected-faces-grid');
+            if (!grid) return;
+            grid.innerHTML = DETECTED_PEOPLE.map(person => `
+                <button onclick="applyFaceFilter('${person.id}')" class="group flex flex-col items-center p-2.5 rounded-2xl bg-gray-50 dark:bg-studio-800 hover:bg-indigo-500/10 border border-gray-200 dark:border-studio-700 hover:border-indigo-500 transition-all text-center">
+                    <img src="${person.avatar}" alt="${person.name}" class="w-14 h-14 rounded-full object-cover mb-2 ring-2 ring-transparent group-hover:ring-indigo-500 transition-all">
+                    <span class="text-xs font-medium line-clamp-1">${person.name}</span>
+                </button>
+            `).join('');
+        }
+
+        function simulateAiFaceScan(callback) {
+            const overlay = document.getElementById('face-scanning-overlay');
+            const progressText = document.getElementById('scan-progress-text');
+            overlay.classList.remove('hidden');
+
+            let progress = 10;
+            const interval = setInterval(() => {
+                progress += Math.floor(Math.random() * 25) + 15;
+                if (progress >= 100) {
+                    progress = 100;
+                    clearInterval(interval);
+                    setTimeout(() => {
+                        overlay.classList.add('hidden');
+                        callback();
+                    }, 400);
+                }
+                progressText.textContent = `กำลังวิเคราะห์โครงสร้างใบหน้า... ${progress}%`;
+            }, 250);
+        }
+
+        function applyFaceFilter(personId, customAvatar = null, customName = null) {
+            simulateAiFaceScan(() => {
+                const person = DETECTED_PEOPLE.find(p => p.id === personId) || {
+                    id: personId,
+                    name: customName || 'ใบหน้าของคุณ (AI Selfie Match)',
+                    avatar: customAvatar || DETECTED_PEOPLE[0].avatar
+                };
+
+                state.activeFaceFilter = person;
+                closeModal('face-search-modal');
+
+                const filtered = getFilteredPhotos();
+                const banner = document.getElementById('face-filter-banner');
+                document.getElementById('filter-face-avatar').src = customAvatar || person.avatar;
+                document.getElementById('filter-face-name').textContent = `แสดงเฉพาะภาพถ่ายของ: ${customName || person.name} (ความแม่นยำ 98.4%)`;
+                document.getElementById('filter-match-count').textContent = `${filtered.length} รูป`;
+                banner.classList.remove('hidden');
+
+                renderGallery(false);
+                showToast('ค้นหาใบหน้าสำเร็จ!', `AI ตรวจพบภาพถ่ายของคุณ ${filtered.length} รูป`, 'success');
+            });
+        }
+
+        function openQrShareModal() {
+            const album = getActiveAlbum();
+            if (!album) return;
+            const shareUrl = getAlbumShareUrl(album);
+            document.getElementById('qr-album-title').textContent = album.name;
+            document.getElementById('share-album-url').value = shareUrl;
+
+            const qrContainer = document.getElementById('qrcode-canvas-container');
+            qrContainer.innerHTML = '';
+            new QRCode(qrContainer, {
+                text: shareUrl,
+                width: 200,
+                height: 200,
+                colorDark: '#09090b',
+                colorLight: '#ffffff',
+                correctLevel: QRCode.CorrectLevel.M
+            });
+
+            const sandboxWarning = document.getElementById('qr-sandbox-warning');
+            if (!state.publicBaseUrl && (!window.location.protocol.startsWith('http') || window.location.href.includes('srcdoc'))) {
+                sandboxWarning.classList.remove('hidden');
+            } else {
+                sandboxWarning.classList.add('hidden');
+            }
+            openModal('qr-share-modal');
+        }
+
+        function promptDeleteAlbum(albumId) {
+            const album = state.albums.find(a => a.id === albumId);
+            if (!album) return;
+            state.albumIdPendingDelete = albumId;
+            document.getElementById('delete-target-album-name').textContent = `"${album.name}"`;
+            openModal('delete-album-modal');
+        }
+
+        function confirmDeleteAlbum() {
+            if (!state.albumIdPendingDelete) return;
+            if (state.albums.length <= 1) {
+                showToast('ไม่สามารถลบได้', 'ต้องมีอัลบั้มอย่างน้อย 1 อัลบั้มในระบบ', 'error');
+                closeModal('delete-album-modal');
+                return;
+            }
+            state.albums = state.albums.filter(a => a.id !== state.albumIdPendingDelete);
+            if (state.activeAlbumId === state.albumIdPendingDelete) {
+                state.activeAlbumId = state.albums[0].id;
+            }
+            state.albumIdPendingDelete = null;
+            saveAlbumsToStorage();
+            closeModal('delete-album-modal');
+            renderGallery(false);
+            showToast('ลบอัลบั้มสำเร็จ', '', 'success');
+        }
+
+        function bindAllEvents() {
+            document.getElementById('mobile-sidebar-btn').addEventListener('click', () => {
+                document.getElementById('album-sidebar').classList.remove('-translate-x-full');
+                document.getElementById('sidebar-backdrop').classList.remove('hidden');
+            });
+            document.getElementById('close-sidebar-btn').addEventListener('click', closeMobileSidebar);
+            document.getElementById('sidebar-backdrop').addEventListener('click', closeMobileSidebar);
+
+            document.getElementById('realtime-toggle-btn').addEventListener('click', () => {
+                state.isRealtimeActive = !state.isRealtimeActive;
+                const dot = document.getElementById('live-dot');
+                const ping = document.getElementById('live-ping');
+                if (state.isRealtimeActive) {
+                    dot.className = 'relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500';
+                    ping.className = 'animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75';
+                    showToast('เปิดใช้งาน Real-time แล้ว', 'ระบบซิงค์ภาพอัตโนมัติทุก 8 วินาที', 'success');
+                } else {
+                    dot.className = 'relative inline-flex rounded-full h-2.5 w-2.5 bg-gray-400';
+                    ping.className = 'hidden';
+                    showToast('ปิดใช้งาน Real-time แล้ว', 'หยุดการซิงค์อัตโนมัติชั่วคราว', 'info');
+                }
+            });
+
+            document.getElementById('open-face-search-btn').addEventListener('click', () => {
+                renderDetectedFacesGrid();
+                openModal('face-search-modal');
+            });
+            document.getElementById('close-face-modal-btn').addEventListener('click', () => closeModal('face-search-modal'));
+
+            document.getElementById('selfie-upload-input').addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = function(evt) {
+                    applyFaceFilter('custom_selfie_' + Date.now(), evt.target.result, 'ใบหน้าของคุณ (AI Selfie)');
+                };
+                reader.readAsDataURL(file);
+            });
+
+            document.getElementById('open-qr-modal-btn').addEventListener('click', openQrShareModal);
+            document.getElementById('close-qr-modal-btn').addEventListener('click', () => closeModal('qr-share-modal'));
+
+            document.getElementById('open-setup-modal-btn').addEventListener('click', () => {
+                document.getElementById('gas-endpoint-input').value = state.gasEndpoint;
+                document.getElementById('public-base-url-input').value = state.publicBaseUrl;
+                openModal('setup-guide-modal');
+            });
+            document.getElementById('close-setup-modal-btn').addEventListener('click', () => closeModal('setup-guide-modal'));
+
+            document.getElementById('save-gas-endpoint-btn').addEventListener('click', () => {
+                const val = document.getElementById('gas-endpoint-input').value.trim();
+                state.gasEndpoint = val;
+                localStorage.setItem('pnk_gas_url', val);
+                closeModal('setup-guide-modal');
+                showToast('บันทึก Web App URL สำเร็จ', val ? 'เชื่อมต่อ Google Drive จริงแล้ว' : 'กลับสู่โหมดสาธิต (Demo)', 'success');
+                syncPhotosFromSource(true);
+            });
+
+            document.getElementById('save-public-url-btn').addEventListener('click', () => {
+                const val = document.getElementById('public-base-url-input').value.trim();
+                state.publicBaseUrl = val;
+                localStorage.setItem('pnk_public_url', val);
+                closeModal('setup-guide-modal');
+                showToast('บันทึก Public Website URL สำเร็จ', val, 'success');
+            });
+
+            document.getElementById('save-admin-password-btn').addEventListener('click', () => {
+                const val = document.getElementById('new-admin-password-input').value.trim();
+                if (!val) {
+                    showToast('กรุณากรอกรหัสผ่านใหม่', '', 'error');
+                    return;
+                }
+                state.adminPassword = val;
+                localStorage.setItem('pnk_admin_pass', val);
+                document.getElementById('new-admin-password-input').value = '';
+                closeModal('setup-guide-modal');
+                showToast('เปลี่ยนรหัสผ่าน Admin สำเร็จ', 'โปรดจดจำรหัสผ่านใหม่ของคุณไว้', 'success');
+            });
+
+            document.getElementById('admin-auth-btn').addEventListener('click', () => {
+                if (state.isAdmin) {
+                    state.isAdmin = false;
+                    sessionStorage.removeItem('pnk_is_admin');
+                    updateRoleUI();
+                    showToast('ออกจากระบบ Admin แล้ว', 'กลับสู่โหมดผู้ใช้งานทั่วไป (Guest)', 'info');
+                } else {
+                    document.getElementById('admin-password-input').value = '';
+                    openModal('admin-login-modal');
+                }
+            });
+            document.getElementById('close-admin-login-btn').addEventListener('click', () => closeModal('admin-login-modal'));
+            document.getElementById('cancel-admin-login-btn').addEventListener('click', () => closeModal('admin-login-modal'));
+
+            document.getElementById('admin-login-form').addEventListener('submit', (e) => {
+                e.preventDefault();
+                const inputPass = document.getElementById('admin-password-input').value;
+                if (inputPass === state.adminPassword) {
+                    state.isAdmin = true;
+                    sessionStorage.setItem('pnk_is_admin', 'true');
+                    closeModal('admin-login-modal');
+                    updateRoleUI();
+                    showToast('เข้าสู่ระบบ Admin สำเร็จ!', 'คุณสามารถจัดการอัลบั้มและตั้งค่าระบบได้แล้ว', 'success');
+                } else {
+                    showToast('รหัสผ่านไม่ถูกต้อง', 'กรุณาลองใหม่อีกครั้ง (ค่าเริ่มต้น: admin1234)', 'error');
+                }
+            });
+
+            document.getElementById('theme-toggle-btn').addEventListener('click', () => {
+                const isDark = document.documentElement.classList.toggle('dark');
+                localStorage.setItem('pnk_theme', isDark ? 'dark' : 'light');
+            });
+
+            document.getElementById('open-create-album-btn').addEventListener('click', () => {
+                document.getElementById('create-album-form').reset();
+                openModal('create-album-modal');
+            });
+            document.getElementById('close-create-album-btn').addEventListener('click', () => closeModal('create-album-modal'));
+            document.getElementById('cancel-create-album-btn').addEventListener('click', () => closeModal('create-album-modal'));
+
+            document.getElementById('create-album-form').addEventListener('submit', (e) => {
+                e.preventDefault();
+                const name = document.getElementById('new-album-name').value.trim();
+                const folderId = document.getElementById('new-album-folder-id').value.trim();
+                const desc = document.getElementById('new-album-desc').value.trim();
+
+                if (!name || !folderId) return;
+
+                const newAlbum = {
+                    id: 'alb_' + Date.now(),
+                    name: name,
+                    folderId: folderId,
+                    description: desc || 'อัลบั้มภาพถ่ายสดจาก Google Drive',
+                    photos: [
+                        { id: 'p_sample_' + Date.now(), name: 'Sample_Photo_01.jpg', timestamp: Date.now(), size: '4.2 MB', faces: ['person_bride'], thumbUrl: 'https://images.unsplash.com/photo-1519741497674-611481863552?auto=format&fit=crop&w=800&q=80', fullUrl: 'https://images.unsplash.com/photo-1519741497674-611481863552?auto=format&fit=crop&w=1600&q=90', downloadUrl: 'https://images.unsplash.com/photo-1519741497674-611481863552?auto=format&fit=crop&w=1600&q=90' }
+                    ]
+                };
+
+                state.albums.unshift(newAlbum);
+                state.activeAlbumId = newAlbum.id;
+                saveAlbumsToStorage();
+                closeModal('create-album-modal');
+                renderGallery(false);
+                if (state.gasEndpoint) syncPhotosFromSource(false);
+                showToast('สร้างอัลบั้มใหม่สำเร็จ!', `พร้อมแชร์ QR Code ของอัลบั้ม "${name}"`, 'success');
+                openQrShareModal();
+            });
+
+            document.getElementById('delete-current-album-btn').addEventListener('click', () => {
+                const album = getActiveAlbum();
+                if (album) promptDeleteAlbum(album.id);
+            });
+            document.getElementById('cancel-delete-album-btn').addEventListener('click', () => closeModal('delete-album-modal'));
+            document.getElementById('confirm-delete-album-btn').addEventListener('click', confirmDeleteAlbum);
+
+            document.getElementById('simulate-upload-btn').addEventListener('click', () => {
+                const album = getActiveAlbum();
+                if (!album) return;
+                state.simCounter++;
+                const sampleImages = [
+                    { name: `LIVE_NEW_${state.simCounter}.jpg`, thumb: 'https://images.unsplash.com/photo-1511285560929-80b456fea0bc?auto=format&fit=crop&w=800&q=80', full: 'https://images.unsplash.com/photo-1511285560929-80b456fea0bc?auto=format&fit=crop&w=1600&q=90', faces: ['person_bride', 'person_groom'] },
+                    { name: `LIVE_PARTY_${state.simCounter}.jpg`, thumb: 'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?auto=format&fit=crop&w=800&q=80', full: 'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?auto=format&fit=crop&w=1600&q=90', faces: ['person_guest1', 'person_guest2'] }
+                ];
+                const item = sampleImages[state.simCounter % sampleImages.length];
+                const newPhoto = {
+                    id: 'sim_' + Date.now(),
+                    name: item.name,
+                    timestamp: Date.now(),
+                    size: '5.1 MB',
+                    faces: item.faces,
+                    thumbUrl: item.thumb,
+                    fullUrl: item.full,
+                    downloadUrl: item.full
+                };
+                album.photos.unshift(newPhoto);
+                saveAlbumsToStorage();
+                renderGallery(true);
+                showToast(`รูปภาพใหม่เข้ามาแล้ว! (${item.name})`, 'แสดงผลขึ้นด้านบนสุดแบบ Real-time ทันที', 'success');
+            });
+
+            document.getElementById('select-all-btn').addEventListener('click', () => {
+                const photos = getFilteredPhotos();
+                if (state.selectedPhotoIds.size === photos.length) {
+                    state.selectedPhotoIds.clear();
+                } else {
+                    photos.forEach(p => state.selectedPhotoIds.add(p.id));
+                }
+                renderGallery(true);
+            });
+
+            document.getElementById('manual-refresh-btn').addEventListener('click', () => syncPhotosFromSource(true));
+
+            document.querySelectorAll('.grid-density-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    document.querySelectorAll('.grid-density-btn').forEach(b => {
+                        b.className = 'grid-density-btn px-2.5 py-1 rounded-lg text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-all';
+                    });
+                    e.target.className = 'grid-density-btn px-2.5 py-1 rounded-lg text-xs font-medium bg-indigo-600 text-white transition-all';
+                    state.gridDensity = e.target.getAttribute('data-cols');
+                    renderGallery(false);
+                });
+            });
+
+            document.getElementById('batch-select-all-btn').addEventListener('click', () => {
+                getFilteredPhotos().forEach(p => state.selectedPhotoIds.add(p.id));
+                renderGallery(true);
+            });
+            document.getElementById('batch-clear-btn').addEventListener('click', () => {
+                state.selectedPhotoIds.clear();
+                renderGallery(true);
+            });
+            document.getElementById('batch-download-zip-btn').addEventListener('click', downloadSelectedAsZip);
+
+            document.getElementById('lightbox-close-btn').addEventListener('click', closeLightbox);
+            document.getElementById('lightbox-prev-btn').addEventListener('click', () => {
+                if (state.lightboxIndex > 0) {
+                    state.lightboxIndex--;
+                    updateLightboxContent();
+                }
+            });
+            document.getElementById('lightbox-next-btn').addEventListener('click', () => {
+                const photos = getFilteredPhotos();
+                if (state.lightboxIndex < photos.length - 1) {
+                    state.lightboxIndex++;
+                    updateLightboxContent();
+                }
+            });
+            document.getElementById('lightbox-select-btn').addEventListener('click', () => {
+                const photos = getFilteredPhotos();
+                const photo = photos[state.lightboxIndex];
+                if (photo) togglePhotoSelection(photo.id);
+            });
+            document.getElementById('lightbox-download-btn').addEventListener('click', () => {
+                const photos = getFilteredPhotos();
+                const photo = photos[state.lightboxIndex];
+                if (photo) downloadSinglePhoto(photo);
+            });
+
+            document.getElementById('copy-link-btn').addEventListener('click', () => {
+                const input = document.getElementById('share-album-url');
+                input.select();
+                copyTextFallback(input.value);
+                showToast('คัดลอกลิงก์สำเร็จ', 'สามารถนำไปแชร์ให้เพื่อนหรือแขกในงานได้ทันที', 'success');
+            });
+            document.getElementById('download-qr-btn').addEventListener('click', () => {
+                const canvas = document.querySelector('#qrcode-canvas-container canvas');
+                if (canvas) {
+                    const url = canvas.toDataURL('image/png');
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `QRCode_${getActiveAlbum().name.replace(/\s+/g, '_')}.png`;
+                    a.click();
+                    showToast('ดาวน์โหลดไฟล์ QR Code สำเร็จ', '', 'success');
+                }
+            });
+
+            document.getElementById('copy-gas-code-btn').addEventListener('click', () => {
+                const codeText = document.getElementById('gas-source-code').innerText;
+                copyTextFallback(codeText);
+                showToast('คัดลอกโค้ด Code.gs สำเร็จ', 'นำไปวางใน Google Apps Script ได้เลยครับ', 'success');
+            });
+
+            document.getElementById('clear-face-filter-btn').addEventListener('click', () => {
+                state.activeFaceFilter = null;
+                document.getElementById('face-filter-banner').classList.add('hidden');
+                renderGallery(false);
+            });
+        }
+
+        function closeMobileSidebar() {
+            document.getElementById('album-sidebar').classList.add('-translate-x-full');
+            document.getElementById('sidebar-backdrop').classList.add('hidden');
+        }
+
+        function openModal(modalId) {
+            const m = document.getElementById(modalId);
+            if (m) {
+                m.classList.remove('hidden');
+                m.classList.add('flex');
+            }
+        }
+
+        function closeModal(modalId) {
+            const m = document.getElementById(modalId);
+            if (m) {
+                m.classList.add('hidden');
+                m.classList.remove('flex');
+            }
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            handleIncomingSharedAlbumUrl();
+            bindAllEvents();
+            updateRoleUI();
+            renderGallery(false);
+            if (state.gasEndpoint) syncPhotosFromSource(false);
+            startRealtimePolling();
+        });
+    </script>
+</body>
+</html>
